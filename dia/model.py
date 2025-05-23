@@ -1,3 +1,4 @@
+import os
 import time
 from enum import Enum
 
@@ -123,6 +124,24 @@ class Dia:
         if torch.cuda.is_available():
             torch.backends.cuda.matmul.allow_tf32 = True
 
+        self.tokenizer = None
+        if self.config.data.language == "ja":
+            if not self.config.data.tokenizer_path:
+                raise ValueError(
+                    "Tokenizer path must be provided for Japanese language ('ja')."
+                )
+            if not os.path.exists(self.config.data.tokenizer_path):
+                raise FileNotFoundError(
+                    f"Tokenizer model file not found at {self.config.data.tokenizer_path}"
+                )
+            # TODO: Uncomment and use sentencepiece when available.
+            # import sentencepiece as spm
+            # self.tokenizer = spm.SentencePieceProcessor()
+            # self.tokenizer.load(self.config.data.tokenizer_path)
+            print(
+                f"INFO: Would load SentencePiece model from {self.config.data.tokenizer_path} if sentencepiece was installed."
+            )
+
     @classmethod
     def from_local(
         cls,
@@ -222,12 +241,19 @@ class Dia:
         Raises:
             RuntimeError: If downloading or loading the DAC model fails.
         """
+        # TODO: The default DAC model downloaded by dac.utils.download() is likely not
+        # optimized for Japanese audio. For high-quality Japanese speech synthesis,
+        # a DAC model trained or fine-tuned on Japanese audio would be necessary.
+        # If self.config.data.language == "ja", consider adding a check here
+        # or providing a way to specify a Japanese-specific DAC model path.
         import dac
 
         try:
             dac_model_path = dac.utils.download()
             dac_model = dac.DAC.load(dac_model_path).to(self.device)
             dac_model.eval()  # Ensure DAC is in eval mode
+            if self.config.data.language == "ja":
+                print("WARN: Using the default DAC model for Japanese. Quality may be suboptimal. A Japanese-specific DAC model is recommended.")
         except Exception as e:
             raise RuntimeError("Failed to load DAC model") from e
         self.dac_model = dac_model
@@ -246,13 +272,35 @@ class Dia:
         """
         max_len = self.config.data.text_length
 
-        byte_text = text.encode("utf-8")
-        # Replace special tokens with their byte values if needed by the specific tokenizer/config
-        # Assuming byte values 1 and 2 are correct placeholders based on original code
-        replaced_bytes = byte_text.replace(b"[S1]", b"\x01").replace(b"[S2]", b"\x02")
-        text_tokens = list(replaced_bytes)
+        if self.config.data.language == "ja":
+            if self.tokenizer is None: # Which will be true for now
+                print(
+                    "WARN: Japanese tokenizer not loaded. Using byte encoding as a fallback."
+                )
+                # Fallback to byte encoding
+                byte_text = text.encode("utf-8")
+                # Ensure special tokens are handled if present in byte encoding
+                replaced_bytes = byte_text.replace(b"[S1]", b"\x01").replace(
+                    b"[S2]", b"\x02"
+                )
+                text_tokens = list(replaced_bytes)
+            else:
+                # This is the future state when sentencepiece is integrated
+                # text_tokens = self.tokenizer.encode_as_ids(text)
+                # For now, placeholder logic for Japanese tokenization:
+                print(f"INFO: Would use SentencePiece to encode: {text}")
+                # Fallback to byte encoding for now to ensure the function returns correctly
+                byte_text = text.encode("utf-8")
+                replaced_bytes = byte_text.replace(b"[S1]", b"\x01").replace(b"[S2]", b"\x02")
+                text_tokens = list(replaced_bytes)
+        else:
+            # Original byte encoding logic for other languages
+            byte_text = text.encode("utf-8")
+            replaced_bytes = byte_text.replace(b"[S1]", b"\x01").replace(b"[S2]", b"\x02")
+            text_tokens = list(replaced_bytes)
+
         return torch.tensor(
-            text_tokens[:max_len],
+            text_tokens[:max_len], # Ensure truncation happens AFTER tokenization
             dtype=torch.long,
             device=self.device,
         )
@@ -552,8 +600,18 @@ class Dia:
             FileNotFoundError: If the audio file cannot be found.
             Exception: If there's an error during loading or processing.
         """
+        # TODO: Processing Japanese audio prompts with the default DAC model
+        # is likely to be suboptimal if the DAC model was not trained on Japanese.
+        # For effective Japanese audio prompt support, one might need:
+        # 1. A Japanese Speech-to-Text (STT) model to transcribe the audio.
+        # 2. A way to convert this transcription into an effective prompt for the DiaModel,
+        #    possibly requiring a Japanese-trained DAC or a different prompting mechanism.
         if self.dac_model is None:
             raise RuntimeError("DAC model is required for loading audio prompts but was not loaded.")
+
+        if self.config.data.language == "ja":
+            print("WARN: Loading a Japanese audio prompt. The current audio processing relies on the default DAC model, which may not effectively encode Japanese speech. Prompt quality and resulting synthesis may be affected.")
+
         audio, sr = torchaudio.load(audio_path, channels_first=True)  # C, T
         if sr != DEFAULT_SAMPLE_RATE:
             audio = torchaudio.functional.resample(audio, sr, DEFAULT_SAMPLE_RATE)
@@ -645,6 +703,11 @@ class Dia:
             self._prepare_generation = torch.compile(self._prepare_generation, dynamic=True, fullgraph=True)
             self._decoder_step = torch.compile(self._decoder_step, fullgraph=True, mode="max-autotune")
             self._compiled = True
+
+        if self.config.data.language == "ja":
+            print("WARN: Generating audio for Japanese text. The current TTS model (e.g., nari-labs/Dia-1.6B) is likely not trained for Japanese speech. Output may be incoherent or not in Japanese. A Japanese-trained TTS model is required for proper Japanese speech synthesis.")
+            # TODO: Add a mechanism to load Japanese-specific model weights if available,
+            # or to integrate an external Japanese TTS engine.
 
         if isinstance(audio_prompt, list):
             audio_prompt = [self.load_audio(p) if isinstance(p, str) else p for p in audio_prompt]

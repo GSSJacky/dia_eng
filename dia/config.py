@@ -41,6 +41,8 @@ class DataConfig(BaseModel, frozen=True):
     audio_pad_value: int = Field(default=1025)
     audio_bos_value: int = Field(default=1026)
     delay_pattern: list[Annotated[int, Field(ge=0)]] = Field(default_factory=lambda: [0, 8, 9, 10, 11, 12, 13, 14, 15])
+    language: str = Field(default="en", description="Language of the text data. Potential values: 'en' (English), 'ja' (Japanese).")
+    tokenizer_path: str | None = Field(default=None, description="Optional path to a language-specific tokenizer model (e.g., for a Japanese SentencePiece model).")
 
     def __hash__(self) -> int:
         """Generate a hash based on all fields of the config."""
@@ -54,6 +56,8 @@ class DataConfig(BaseModel, frozen=True):
                 self.audio_bos_value,
                 self.audio_eos_value,
                 tuple(self.delay_pattern),
+                self.language,
+                self.tokenizer_path,
             )
         )
 
@@ -117,6 +121,7 @@ class ModelConfig(BaseModel, frozen=True):
 
     encoder: EncoderConfig
     decoder: DecoderConfig
+    # TODO: Revisit src_vocab_size if Japanese tokenizer requires a different vocabulary size.
     src_vocab_size: int = Field(default=128, gt=0)
     tgt_vocab_size: int = Field(default=1028, gt=0)
     dropout: float = Field(default=0.0, ge=0.0, lt=1.0)

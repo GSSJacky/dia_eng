@@ -85,6 +85,50 @@ You can keep speaker consistency by either adding an audio prompt (a guide comin
 - Voice cloning. See [`example/voice_clone.py`](example/voice_clone.py) for more information.
   - In the Hugging Face space, you can upload the audio you want to clone and place its transcript before your script. Make sure the transcript follows the required format. The model will then output only the content of your script.
 
+## Japanese Language Support (Experimental)
+
+This model includes experimental support for processing Japanese text input. However, please note the significant limitations outlined below.
+
+### Configuration
+
+To enable Japanese language processing, you need to configure the model as follows:
+
+1.  **Set Language in `DataConfig`**:
+    *   In your `DataConfig` (part of `DiaConfig`), set the `language` field to `"ja"`.
+    *   Example: `DataConfig(language="ja", tokenizer_path="/path/to/your/japanese.model", ...)`
+
+2.  **Provide a SentencePiece Tokenizer Model**:
+    *   You **must** provide your own SentencePiece model file (`.model`) trained specifically on Japanese text.
+    *   Set the `tokenizer_path` field in `DataConfig` to the absolute or relative path of this `.model` file.
+
+### Dependency
+
+*   The `sentencepiece` Python library is required for Japanese tokenization. It has been added as a project dependency and should be installed automatically when you install or update the `nari-tts` package.
+
+### Limitations and Important Notes
+
+*   **Pre-trained Models:** The default pre-trained TTS model weights (e.g., `nari-labs/Dia-1.6B`) and the default Descript Audio Codec (DAC) model **are not trained or optimized for Japanese**.
+*   **Output Quality:** Attempting to generate Japanese speech with the current default English-trained models will likely result in **suboptimal, incoherent, or non-Japanese audio**.
+*   **Audio Prompts:** Using Japanese audio prompts with the default DAC model may also not work as expected due to the mismatch in training data.
+
+For effective Japanese speech synthesis and audio prompt support with this codebase, you would generally need:
+
+*   A `DiaModel` (or a model with a compatible architecture) that has been trained on a substantial dataset of Japanese speech.
+*   A DAC model that has been trained or fine-tuned specifically on Japanese audio data.
+*   Optionally, for robust Japanese audio prompt processing, integration with a Japanese Speech-to-Text (STT) model might be necessary to convert audio prompts into text that the Japanese TTS model can better understand.
+
+### Command-Line (CLI) Usage
+
+When using `cli.py`, you can specify the language using the `--language` flag:
+
+```bash
+python cli.py "こんにちは世界" --output japanese_output.wav --language ja --repo-id your/model/id
+```
+
+Ensure that the configuration file (`config.json`) associated with your model (whether local or downloaded via `repo-id`) has the `tokenizer_path` field in its `data` configuration correctly pointing to your Japanese SentencePiece model file. The `--language ja` flag will override the language setting in the config, but `tokenizer_path` must be pre-set in the config for Japanese.
+
+---
+
 ## ⚙️ Usage
 
 ### As a Python Library

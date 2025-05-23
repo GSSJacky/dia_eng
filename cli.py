@@ -73,6 +73,13 @@ def main():
         default="cuda" if torch.cuda.is_available() else "cpu",
         help="Device to run inference on (e.g., 'cuda', 'cpu', default: auto).",
     )
+    parser.add_argument(
+        "--language",
+        type=str,
+        default=None, # Default to None, so it uses the config's language unless specified
+        choices=["en", "ja"], # Optional: restrict choices
+        help="Language for text processing and audio generation (e.g., 'en', 'ja'). Overrides the language setting in the model's config file if provided."
+    )
 
     args = parser.parse_args()
 
@@ -113,6 +120,50 @@ def main():
             print(f"Error loading model from Hub: {e}")
             exit(1)
     print("Model loaded.")
+
+    if args.language:
+        print(f"CLI: Attempting to override language to: {args.language}")
+        # Create a new DataConfig with the updated language
+        new_data_config = model.config.data.model_copy(update={"language": args.language})
+        
+        # Create a new DiaConfig with the updated DataConfig
+        # Pydantic models are immutable by default if frozen=True, so we need to create new instances.
+        new_dia_config = model.config.model_copy(
+            update={
+                "data": new_data_config,
+            }
+        )
+        model.config = new_dia_config # Replace the model's config
+        
+        # Re-trigger tokenizer-related setup based on the new language.
+        # This mirrors the logic in Dia.__init__ for tokenizer handling.
+        if args.language == "ja":
+            if not model.config.data.tokenizer_path:
+                # Try to infer tokenizer path if a default name pattern could be assumed,
+                # or rely on the config to have a sensible default tokenizer_path even if language was 'en'.
+                # For now, strict check:
+                raise ValueError(
+                    "CLI: Japanese language selected, but tokenizer_path is not set in the model's effective config."
+                )
+            if not os.path.exists(model.config.data.tokenizer_path):
+                raise FileNotFoundError(
+                    f"CLI: Tokenizer model for Japanese not found at {model.config.data.tokenizer_path}"
+                )
+            # Placeholder for actual tokenizer loading, mirroring Dia.__init__
+            # import sentencepiece as spm # This would be here
+            # model.tokenizer = spm.SentencePieceProcessor()
+            # model.tokenizer.load(model.config.data.tokenizer_path)
+            print(
+                f"CLI: INFO: Japanese language set. Would load SentencePiece model from {model.config.data.tokenizer_path} if sentencepiece library was integrated."
+            )
+            # Since sentencepiece is not used, model.tokenizer remains None or what it was.
+            # The warnings in Dia._encode_text will handle the fallback.
+        elif args.language == "en":
+            model.tokenizer = None # English uses byte encoding, no specific tokenizer object needed.
+            print("CLI: INFO: English language set. Tokenizer (if any) reset.")
+
+        print(f"CLI: Language successfully overridden to: {model.config.data.language}. Tokenizer path for JA: {model.config.data.tokenizer_path if model.config.data.language == 'ja' else 'N/A'}")
+
 
     # Generate audio
     print("Generating audio...")
